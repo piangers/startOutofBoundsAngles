@@ -216,7 +216,7 @@ class StartOutofBoundsAngles:
                               (SELECT "{4}" as "{4}", (ST_Dump("{3}")).geom as "{3}"
                                FROM only "{0}"."{1}"
                                ) AS linestrings WHERE ST_NPoints(linestrings."{3}") > 2 ) as points)
-            select distinct "{4}", anchor, angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) from {3} in ({5})""".format( tableSchema, tableName, angle, geometryColumn, keyColumn )
+            select distinct "{4}", anchor, angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) and {3} in ({5}) as {2}""".format( tableSchema, tableName, angle, geometryColumn, keyColumn,",".join(lista_fid))
         
         elif  'POLYGON' in geomType:
             sql = """
@@ -234,7 +234,7 @@ class StartOutofBoundsAngles:
                               (SELECT "{4}" as "{4}", (ST_Dump(ST_Boundary(ST_ForceRHR((ST_Dump("{3}")).geom)))).geom as "{3}"
                                FROM only "{0}"."{1}"
                                ) AS linestrings WHERE ST_NPoints(linestrings."{3}") > 2 ) as points)
-            select distinct "{4}", anchor, angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) from {3} in ({5})""".format( tableSchema, tableName, angle, geometryColumn, keyColumn )
+            select distinct "{4}", anchor, angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) and {3} in ({5}) as {2}""".format( tableSchema, tableName, angle, geometryColumn, keyColumn,",".join(lista_fid) )
         return sql
         query = QSqlQuery(sql)
         
