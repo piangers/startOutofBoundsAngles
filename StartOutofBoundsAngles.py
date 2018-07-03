@@ -14,9 +14,10 @@ class StartOutofBoundsAngles:
         
         self.iface = iface
 
-        self.Schema = 'edgv'
+        self.tableSchema = 'edgv'
         self.geometryColumn = 'geom'
         self.keyColumn = 'id'
+        self.angle = 10
 
     def initGui(self): 
         # cria uma ação que iniciará a configuração do plugin 
@@ -87,39 +88,7 @@ class StartOutofBoundsAngles:
 
 
 
-        def insertFrame(self,scale,mi,inom,frame,srid,geoSrid, paramDict = dict()):
-        paramKeys = paramDict.keys()
-        if 'tableSchema' not in paramKeys:
-            tableSchema = 'public'
-        else:
-            tableSchema = paramDict['tableSchema']
-        if 'tableName' not in paramKeys:
-            tableName = 'aux_moldura_a'
-        else:
-            tableName = paramDict['tableName']
-        if 'miAttr' not in paramKeys:
-            miAttr = 'mi'
-        else:
-            miAttr = paramDict['miAttr']
-        if 'inomAttr' not in paramKeys:
-            inomAttr = 'inom'
-        else:
-            inomAttr = paramDict['inomAttr']
-        if 'geom' not in paramKeys:
-            geometryColumn = 'geom'
-        else:
-            geometryColumn = paramDict['geom']
-        if 'geomType' not in paramKeys:
-            geomType = 'MULTIPOLYGON'
-        else:
-            geomType = paramDict['geomType']
-
-        if geomType == 'MULTIPOLYGON':
-            sql = """INSERT INTO "{5}"."{6}" ({7},{8},{9}) VALUES ('{0}','{1}',ST_Transform(ST_SetSRID(ST_Multi('{2}'),{3}), {4}))""".format(mi, inom, frame, geoSrid, srid, tableSchema, tableName, miAttr, inomAttr, geometryColumn)
-        else:
-            sql = """INSERT INTO "{5}"."{6}" ({7},{8},{9}) VALUES ('{0}','{1}',ST_Transform((ST_SetSRID( (ST_Dump('{2}')).geom,{3})), {4}))""".format(mi, inom, frame, geoSrid, srid, tableSchema, tableName, miAttr, inomAttr, geometryColumn)
-        return sql
-
+    
 
 
         # Testa se os parametros receberam os valores pretendidos, caso não, apresenta a mensagem informando..
@@ -148,7 +117,7 @@ class StartOutofBoundsAngles:
     ####################################
     ###### CRIAÇÃO DE MEMORY LAYER #####
     ####################################
-        ProcessName, ClassName = range(2) # copiado do dsgEnums.py
+        
         layerCrs = layer.crs().authid() # Passa o formato (epsg: numeros)
 
         flagsLayerName = layer.name() + "_flags"
@@ -167,7 +136,7 @@ class StartOutofBoundsAngles:
 
             self.flagsLayer = QgsVectorLayer(tempString, flagsLayerName, "memory")
             self.flagsLayerProvider = self.flagsLayer.dataProvider()
-            self.flagsLayerProvider.addAttributes([QgsField("id", QVariant.Int), QgsField("motivo", QVariant.String)])
+            self.flagsLayerProvider.addAttributes([QgsField("flagId", QVariant.Int), QgsField("geomId", QVariant.String), QgsField("motivo", QVariant.String)])
             self.flagsLayer.updateFields()
 
         self.flagsLayer.startEditing()
@@ -196,9 +165,9 @@ class StartOutofBoundsAngles:
             return
 
         
-        
-         
-        if 'LINESTRING' in self.geomType:
+        geomType = layer.geometryType()
+
+        if geomType == QGis.Line:
             
         # Busca através do SQL 
             sql = """
@@ -211,14 +180,14 @@ class StartOutofBoundsAngles:
                               ST_PointN("{3}", generate_series(1, ST_NPoints("{3}")-2)) as pt1, 
                               ST_PointN("{3}", generate_series(2, ST_NPoints("{3}")-1)) as anchor,
                               ST_PointN("{3}", generate_series(3, ST_NPoints("{3}"))) as pt2,
-                              linestrings."{4}" as "{4}"
+                              linestrings."{4}" as "{4}" 
                             FROM
                               (SELECT "{4}" as "{4}", (ST_Dump("{3}")).geom as "{3}"
                                FROM only "{0}"."{1}"
                                ) AS linestrings WHERE ST_NPoints(linestrings."{3}") > 2 ) as points)
-            select distinct "{4}", anchor, angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) and {3} in ({5}) as {2}""".format( tableSchema, tableName, angle, geometryColumn, keyColumn,",".join(lista_fid))
+            select distinct "{4}", ST_AsText(anchor), angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) and result.{4} in ({5})""".format( self.tableSchema, self.tableName, self.angle, self.geometryColumn, self.keyColumn,",".join(lista_fid))
         
-        elif  'POLYGON' in geomType:
+        elif geomType == QGis.Polygon:
             sql = """
             WITH result AS (SELECT points."{4}", points.anchor, (degrees
                                         (
@@ -232,10 +201,9 @@ class StartOutofBoundsAngles:
                               linestrings."{4}" as "{4}"
                             FROM
                               (SELECT "{4}" as "{4}", (ST_Dump(ST_Boundary(ST_ForceRHR((ST_Dump("{3}")).geom)))).geom as "{3}"
-                               FROM only "{0}"."{1}"
+                               FROM only "{0}"."{1}" 
                                ) AS linestrings WHERE ST_NPoints(linestrings."{3}") > 2 ) as points)
-            select distinct "{4}", anchor, angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) and {3} in ({5}) as {2}""".format( tableSchema, tableName, angle, geometryColumn, keyColumn,",".join(lista_fid) )
-        return sql
+            select distinct "{4}", ST_AsText(anchor), angle from result where (result.angle % 360) < {2} or result.angle > (360.0 - ({2} % 360.0)) and result.{4} in ({5})""".format( self.tableSchema, self.tableName, self.angle, self.geometryColumn, self.keyColumn,",".join(lista_fid) )
         query = QSqlQuery(sql)
         
         self.flagsLayer.startEditing()
@@ -243,16 +211,20 @@ class StartOutofBoundsAngles:
 
         listaFeatures = []
         while query.next():
-            motivo = query.value(0)
+            id = query.value(0)
             local = query.value(1)
+            angulo = query.value(2)
             flagId = flagCount
+
+            print id, local, angulo
 
             flagFeat = QgsFeature()
             flagGeom = QgsGeometry.fromWkt(local) # passa o local onde foi localizado o erro.
             flagFeat.setGeometry(flagGeom)
-            flagFeat.initAttributes(2)
+            flagFeat.initAttributes(3)
             flagFeat.setAttribute(0,flagId) # insere o id definido para a coluna 0 da layer de memória.
-            flagFeat.setAttribute(1, motivo) # insere o motivo/razão pré-definida para a coluna 1 da layer de memória.
+            flagFeat.setAttribute(1, id) # insere o id da geometria  para a coluna 1 da layer de memória.
+            flagFeat.setAttribute(2, u"Ângulo para os vértices adjacentes inferior à tolerância")
         
         # TypeError: fromWkt(QString): argument 1 has unexpected type 'long' 
         #     Traceback (most recent call last):
